@@ -1,18 +1,19 @@
-﻿using Microsoft.Azure.Amqp;
-using Microsoft.Azure.Devices;
-using Microsoft.Azure.Devices.Client;
+﻿using Microsoft.Azure.Devices.Client;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using Message = Microsoft.Azure.Devices.Client.Message;
 
 namespace RoutingDemo
 {
     internal class Program
     {
+        private static ILogger<Program> _logger;
+
         private static async Task Main(string[] args)
         {
             var servicesCollection = new ServiceCollection()
@@ -27,7 +28,7 @@ namespace RoutingDemo
                 .Build();
 
 
-            servicesCollection.Configure<Settings>(configuration.GetSection("Settings"), 
+            servicesCollection.Configure<Settings>(configuration.GetSection("Settings"),
                 options => options.ErrorOnUnknownConfiguration = true);
 
             var serviceProvider = servicesCollection.BuildServiceProvider();
@@ -38,6 +39,7 @@ namespace RoutingDemo
             // The messages are routed to different endpoints depending on the level, temperature, and humidity.
 
             var settings = serviceProvider.GetService<IOptions<Settings>>()!.Value;
+            _logger = serviceProvider.GetService<ILogger<Program>>()!;
 
             await using var deviceClient = DeviceClient.CreateFromConnectionString(settings.DeviceConnectionString);
 
@@ -53,10 +55,28 @@ namespace RoutingDemo
 
             try
             {
+                await deviceClient!.SetMethodHandlerAsync("IsAlive", IsAlive, deviceClient, cts.Token);
                 await SendDeviceToCloudMessagesAsync(deviceClient, cts.Token);
                 await deviceClient.CloseAsync(cts.Token);
             }
             catch (OperationCanceledException) { }
+        }
+
+        /// <summary>
+        /// Callback method for the 'IsAlive' command
+        /// </summary>
+        /// <returns></returns>
+        /// <remarks>
+        /// </remarks>
+        private static Task<MethodResponse> IsAlive(MethodRequest methodRequest, object userContext)
+        {
+            string data = Encoding.UTF8.GetString(methodRequest.Data);
+
+            _logger.LogInformation(">>>>>>>>>> Executing IsAlive method. <<<<<<<<<<<<");
+            _logger.LogInformation($"{DateTimeOffset.UtcNow.UtcDateTime}: {methodRequest.Name} '{data}'");
+
+            string result = $"{{\"result\":\"Executed direct method: {methodRequest.Name}\"}}";
+            return Task.FromResult(new MethodResponse(Encoding.UTF8.GetBytes(result), 200));
         }
 
         /// <summary>
@@ -73,18 +93,7 @@ namespace RoutingDemo
                 var currentTemperature = minTemperature + rand.NextDouble() * 15;
                 var currentHumidity = minHumidity + rand.NextDouble() * 20;
 
-                var randomNumber = rand.NextDouble();
-
-                (string lv, string info) GetLevel(double value) =>
-                    value switch
-                    {
-                        >= 0.8 => ("critical", "This is a critical message."),
-                        (< 0.8) and (>= 0.7) => ("warning", "This is a warning message."),
-                        (< 0.7) and (>= 0.3) => ("storage", "This is a storage message."),
-                        _ => ("normal", "This is a normal message.")
-                    };
-                
-                var (levelValue, infoString) = GetLevel(randomNumber);
+                var (levelValue, infoString) = GetLevel(rand);
 
                 var telemetryDataPoint = new
                 {
@@ -104,7 +113,7 @@ namespace RoutingDemo
                     ContentType = "application/json",
                 };
 
-                // This propertie will be used for routing query
+                // This property will be used for routing query
                 message.Properties.Add("level", levelValue);
 
                 try
@@ -119,11 +128,23 @@ namespace RoutingDemo
 
                 try
                 {
-                    await Task.Delay(1000, token);
+                    await Task.Delay(4000, token);
                 }
                 catch (TaskCanceledException) { }
                 catch (OperationCanceledException) { }
             }
+        }
+
+        private static (string lv, string info) GetLevel(Random random)
+        {
+            var randomNumber = random.NextDouble();
+            return randomNumber switch
+            {
+                >= 0.8 => ("critical", "This is a critical message."),
+                (< 0.8) and (>= 0.7) => ("warning", "This is a warning message."),
+                (< 0.7) and (>= 0.3) => ("storage", "This is a storage message."),
+                _ => ("normal", "This is a normal message.")
+            };
         }
     }
 }

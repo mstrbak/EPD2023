@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ReconnectionDemo", "Reconne
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProvisioningDemo", "ProvisioningDemo\ProvisioningDemo.csproj", "{7857345C-0C58-4BBD-A056-A71E7D99A2F9}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BackendService", "BackendService\BackendService.csproj", "{26AD01E7-1471-4836-BB34-FC2FF515927B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,10 @@ Global
 		{7857345C-0C58-4BBD-A056-A71E7D99A2F9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7857345C-0C58-4BBD-A056-A71E7D99A2F9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7857345C-0C58-4BBD-A056-A71E7D99A2F9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{26AD01E7-1471-4836-BB34-FC2FF515927B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{26AD01E7-1471-4836-BB34-FC2FF515927B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{26AD01E7-1471-4836-BB34-FC2FF515927B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{26AD01E7-1471-4836-BB34-FC2FF515927B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
