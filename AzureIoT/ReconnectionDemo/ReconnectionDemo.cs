@@ -68,8 +68,6 @@ namespace ReconnectionDemo
 
             _logger.LogInformation($"Sample execution started, press Control+C to quit the sample.");
 
-            //var connectionHandler = new ConnectionChangedHandler(_logger, GetTwinAndDetectChangesAsync);
-
             try
             {
                 await InitializeAndSetupClientAsync(_appCancellation.Token);
@@ -172,7 +170,7 @@ namespace ReconnectionDemo
         {
             string data = Encoding.UTF8.GetString(methodRequest.Data);
 
-            _logger.LogInformation(">>>>>>>>>> Executing IsAlive method. <<<<<<<<<<<<");
+            _logger.LogWarning(">>>>>>>>>> Executing IsAlive method. <<<<<<<<<<<<");
             _logger.LogInformation($"{DateTimeOffset.UtcNow.UtcDateTime}: {methodRequest.Name} '{data}'");
 
             string result = $"{{\"result\":\"Executed direct method: {methodRequest.Name}\"}}";

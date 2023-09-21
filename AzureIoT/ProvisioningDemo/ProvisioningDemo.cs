@@ -1,64 +1,79 @@
-﻿using Microsoft.Azure.Devices.Client;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+﻿using System.Security.Cryptography;
+using Microsoft.Azure.Devices.Client;
+using Microsoft.Azure.Devices.Provisioning.Client;
+using Microsoft.Azure.Devices.Shared;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using System.Text;
 using System.Text.Json;
-using System.Threading;
 using Message = Microsoft.Azure.Devices.Client.Message;
-
-namespace RoutingDemo
+namespace ProvisioningDemo
 {
-    internal class Program
+    internal class ProvisioningDemo
     {
-        private static ILogger<Program> _logger;
+        private readonly ILogger<Program> _logger;
 
-        private static async Task Main(string[] args)
+        public ProvisioningDemo(ILogger<Program> logger)
         {
-            var servicesCollection = new ServiceCollection()
-                .AddLogging(loggingBuilder => loggingBuilder
-                    .SetMinimumLevel(LogLevel.Debug)
-                    .AddConsole()
-                    .AddDebug()
-                );
+            _logger = logger;
+        }
 
-            var configuration = new ConfigurationBuilder()
-                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-                .Build();
+        public async Task RunDemo(CancellationToken cancellationToken)
+        {
+            var rand = new Random();
+            var deviceId = $"device-{rand.Next(1, 10)}";
 
-            servicesCollection.Configure<Settings>(configuration.GetSection("Settings"),
-                options => options.ErrorOnUnknownConfiguration = true);
+            string derivedPrimaryKey = GenerateDerivedKeyFromSymmetric(deviceId, Settings.SymmetricKeyPrimary);
 
-            var serviceProvider = servicesCollection.BuildServiceProvider();
+            using var security = new SecurityProviderSymmetricKey(deviceId, derivedPrimaryKey, null);
 
-            // Send messages to the simulated device. Each message will contain a randomly generated
-            //   Temperature and Humidity.
-            // The "level" of each message is set randomly to "storage", "critical", or "normal".
-            // The messages are routed to different endpoints depending on the level, temperature, and humidity.
+            var registrationResult = await RegisterDevice(deviceId, security, cancellationToken);
 
-            var settings = serviceProvider.GetService<IOptions<Settings>>()!.Value;
-            _logger = serviceProvider.GetService<ILogger<Program>>()!;
-
-            await using var deviceClient = DeviceClient.CreateFromConnectionString(settings.DeviceConnectionString);
-
-            using var cts = new CancellationTokenSource();
-            Console.CancelKeyPress += (sender, eventArgs) =>
+            if (registrationResult.Status != ProvisioningRegistrationStatusType.Assigned)
             {
-                eventArgs.Cancel = true;
-                cts.Cancel();
-                Console.WriteLine("Cancellation requested; will exit.");
-            };
-
-            Console.WriteLine($"Press Control+C at any time to quit the sample.");
-
-            try
-            {
-                await deviceClient!.SetMethodHandlerAsync("IsAlive", IsAlive, deviceClient, cts.Token);
-                await SendDeviceToCloudMessagesAsync(deviceClient, cts.Token);
-                await deviceClient.CloseAsync(cts.Token);
+                _logger.LogError($"Registration status did not assign a hub, so exiting this sample.");
+                return;
             }
-            catch (OperationCanceledException) { }
+            _logger.LogInformation($"Device {registrationResult.DeviceId} registered to {registrationResult.AssignedHub}.");
+
+            _logger.LogInformation("Creating symmetric key authentication for IoT Hub...");
+            var auth = new DeviceAuthenticationWithRegistrySymmetricKey(registrationResult.DeviceId, security.GetPrimaryKey());
+
+            _logger.LogInformation("Connecting to the Iot Hub...");
+            await using var deviceClient = DeviceClient.Create(registrationResult.AssignedHub, auth, Settings.TransportType);
+
+            await deviceClient!.SetMethodHandlerAsync("IsAlive", IsAlive, deviceClient, cancellationToken);
+            await SendDeviceToCloudMessagesAsync(deviceClient, cancellationToken);
+            await deviceClient.CloseAsync(cancellationToken);
+        }
+
+        private string GenerateDerivedKeyFromSymmetric(string deviceId, string symmetricKey)
+        {
+            var hmac = new HMACSHA256(Convert.FromBase64String(symmetricKey));
+            var sig = hmac.ComputeHash(Encoding.ASCII.GetBytes(deviceId));
+            var derivedKey = Convert.ToBase64String(sig);
+            return derivedKey;
+        }
+
+        private async Task<DeviceRegistrationResult> RegisterDevice(string deviceId,
+            SecurityProviderSymmetricKey security, CancellationToken cancellationToken)
+        {
+            using var transportHandler = Utils.CreateTransportHandler(Settings.TransportType);
+
+            _logger.LogInformation($"Initializing the device provisioning client...");
+
+            ProvisioningDeviceClient provClient = ProvisioningDeviceClient.Create(
+                Settings.GlobalDeviceEndpoint,
+                Settings.IdScope,
+                security,
+                transportHandler);
+
+            _logger.LogInformation($"Initialized for registration Id {security.GetRegistrationID()}.");
+            _logger.LogInformation("Registering with the device provisioning service... ");
+
+            var registrationResult = await provClient.RegisterAsync(cancellationToken);
+            _logger.LogDebug(Utils.DumpRegistration(registrationResult));
+
+            return registrationResult;
         }
 
         /// <summary>
@@ -67,7 +82,7 @@ namespace RoutingDemo
         /// <returns></returns>
         /// <remarks>
         /// </remarks>
-        private static Task<MethodResponse> IsAlive(MethodRequest methodRequest, object userContext)
+        private Task<MethodResponse> IsAlive(MethodRequest methodRequest, object userContext)
         {
             string data = Encoding.UTF8.GetString(methodRequest.Data);
 
